@@ -1,0 +1,12 @@
+#Markdown files
+#CLAUDE.md
+#ROADMAP.md
+
+#Java files
+.DS_Store
+.idea
+.vscode
+.classpath
+.project
+.settings
+.factorypath
