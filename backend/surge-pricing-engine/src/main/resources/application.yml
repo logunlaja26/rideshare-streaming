@@ -1,0 +1,28 @@
+spring:
+  application:
+    name: surge-pricing-engine
+  kafka:
+    bootstrap-servers: localhost:9094
+    streams:
+      application-id: surge-pricing-engine
+      properties:
+        default.key.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+        default.value.serde: org.apache.kafka.common.serialization.Serdes$StringSerde
+
+server:
+  port: 8084
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+logging:
+  level:
+    com.rideshare: DEBUG
+    org.apache.kafka: WARN

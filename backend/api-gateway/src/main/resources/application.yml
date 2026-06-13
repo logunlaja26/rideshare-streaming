@@ -1,0 +1,57 @@
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowed-origins: "http://localhost:3000"
+            allowed-methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowed-headers: "*"
+            allow-credentials: true
+      routes:
+        # Route to location-aggregator
+        - id: drivers-route
+          uri: http://localhost:8082
+          predicates:
+            - Path=/api/drivers/**
+          filters:
+            - StripPrefix=1
+
+        # Route to trip-event-service
+        - id: trips-route
+          uri: http://localhost:8083
+          predicates:
+            - Path=/api/trips/**
+          filters:
+            - StripPrefix=1
+
+        # Route to notification-service WebSocket
+        - id: websocket-route
+          uri: ws://localhost:8085
+          predicates:
+            - Path=/ws/**
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+logging:
+  level:
+    com.rideshare: DEBUG
+    org.springframework.cloud.gateway: DEBUG

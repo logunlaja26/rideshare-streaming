@@ -1,12 +1,78 @@
-#Markdown files
+# markdown files
 CLAUDE.md
 ROADMAP.md
 
-#Java files
+# macOS
 .DS_Store
-.idea
-.vscode
+.AppleDouble
+.LSOverride
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 .classpath
 .project
-.settings
+.settings/
 .factorypath
+*.iml
+
+# Java / Maven
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.log
+.mvn/
+mvn.cmd
+mvnw
+mvnw.cmd
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+.cache/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform/
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Docker volumes (persisted locally)
+kafka_data/
+redis_data/
+postgres_data/
+prometheus_data/
+grafana_data/
+
+# Spring Boot
+HELP.md
+.gradle
+*.log
+
+# Sensitive / Local configs
+application-local.yml
+application-local.properties
+*.pem
+*.key
+credentials.json
+.env
