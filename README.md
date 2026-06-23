@@ -13,6 +13,7 @@ Kubernetes · Terraform · GitHub Actions · React + Leaflet
 ## Why this project exists
 
 This is a exploration + portfolio project. The goal is to practicalize system design principles and apply them to a real distributed systems work:
+
 - Event-driven architecture with a message broker
 - Partitioning strategy and ordered delivery guarantees
 - Delivery semantics: at-least-once vs exactly-once (fare calculation)
@@ -61,12 +62,14 @@ OBSERVABILITY   Prometheus + Grafana
 
 ## Kafka topics
 
-| Topic            | Partitions | Key        | Purpose                                  |
-|------------------|------------|------------|------------------------------------------|
-| `driver.location`| 8          | `driverId` | Raw GPS events from the producer         |
-| `trip.events`    | 4          | `tripId`   | TRIP_STARTED / TRIP_ENDED / FARE_CALCULATED |
-| `surge.pricing`  | 2          | `zoneId`   | Surge multipliers emitted per zone       |
-| `events.dlq`     | 1          | —          | Dead-lettered / malformed events         |
+
+| Topic             | Partitions | Key        | Purpose                                     |
+| ----------------- | ---------- | ---------- | ------------------------------------------- |
+| `driver.location` | 8          | `driverId` | Raw GPS events from the producer            |
+| `trip.events`     | 4          | `tripId`   | TRIP_STARTED / TRIP_ENDED / FARE_CALCULATED |
+| `surge.pricing`   | 2          | `zoneId`   | Surge multipliers emitted per zone          |
+| `events.dlq`      | 1          | —          | Dead-lettered / malformed events            |
+
 
 Partitioning by `driverId` on `driver.location` is what guarantees ordered delivery of GPS
 updates per driver — all events for one driver always land on the same partition, and a partition
@@ -76,15 +79,17 @@ is consumed in order by exactly one consumer in the group.
 
 ## Services
 
-| Service               | Type                | Reads from        | Writes to                   |
-|-----------------------|---------------------|-------------------|-----------------------------|
-| `gps-producer`        | Kafka producer      | (scheduler)       | `driver.location`           |
-| `location-aggregator` | Kafka consumer      | `driver.location` | Redis HASH + pub/sub        |
-| `trip-event-service`  | Kafka consumer      | `trip.events`     | Postgres                    |
-| `surge-pricing-engine`| Kafka Streams       | `driver.location` + `rider.requests` | `surge.pricing` |
-| `notification-service`| WebSocket relay     | Redis pub/sub     | Browser (STOMP `/topic/drivers`) |
-| `dlq-processor`       | Kafka consumer      | `events.dlq`      | Postgres `dlq_events`       |
-| `api-gateway`         | Spring Cloud Gateway| (routes)          | downstream services         |
+
+| Service                | Type                 | Reads from                           | Writes to                        |
+| ---------------------- | -------------------- | ------------------------------------ | -------------------------------- |
+| `gps-producer`         | Kafka producer       | (scheduler)                          | `driver.location`                |
+| `location-aggregator`  | Kafka consumer       | `driver.location`                    | Redis HASH + pub/sub             |
+| `trip-event-service`   | Kafka consumer       | `trip.events`                        | Postgres                         |
+| `surge-pricing-engine` | Kafka Streams        | `driver.location` + `rider.requests` | `surge.pricing`                  |
+| `notification-service` | WebSocket relay      | Redis pub/sub                        | Browser (STOMP `/topic/drivers`) |
+| `dlq-processor`        | Kafka consumer       | `events.dlq`                         | Postgres `dlq_events`            |
+| `api-gateway`          | Spring Cloud Gateway | (routes)                             | downstream services              |
+
 
 ---
 
@@ -100,6 +105,8 @@ docker compose up -d
 #    Kafka UI   → http://localhost:8080
 #    Postgres   → localhost:5432
 #    Redis      → localhost:6379
+#    Prometheus → http://localhost:9090
+#    Grafana    → http://localhost:3001
 
 # 3. Build all backend modules
 mvn clean install
@@ -107,12 +114,23 @@ mvn clean install
 # 4. Start each service (separate terminals, or use docker compose for everything)
 mvn spring-boot:run -pl backend/gps-producer
 mvn spring-boot:run -pl backend/location-aggregator
+#   a. gps-producer (port 8081)
+#   b. location-aggregator (port 8082)
+#   c. trip-event-service (port 8083)
+#   d. surge-pricing-engine (port 8084)
+#   e. notification-service (port 8085)
+#   f. dlq-processor (port 8086)
+#   g. api-gateway (port 8080)
 # ...etc
 
 # 5. Start the frontend
 cd frontend/rideshare-ui
 npm install
 npm run dev          # → http://localhost:3000
+
+# 6. Shutdown infrastructure when done
+docker compose down
+docker compose down -v # completely remove everything including volumes (fresh start)
 ```
 
 You should see drivers begin moving on the map within a few seconds.
@@ -149,15 +167,17 @@ GitHub → Actions → "Destroy infrastructure" → Run workflow → type DESTRO
 This runs `terraform destroy -auto-approve` and drops daily cost from ~$5/day to ~$0.05/day
 (only ECR image storage remains).
 
-| Resource                  | Active cost/day | After destroy |
-|---------------------------|-----------------|---------------|
-| EKS control plane         | ~$2.40          | $0            |
-| 2× t3.medium nodes        | ~$2.00          | $0            |
-| RDS db.t3.micro           | ~$0.50          | $0            |
-| ElastiCache t3.micro      | ~$0.40          | $0            |
-| Kafka on EKS (no MSK)     | $0 extra        | $0            |
-| ECR storage               | ~$0.05          | ~$0.05        |
-| **Total**                 | **~$5.35/day**  | **~$0.05/day**|
+
+| Resource              | Active cost/day | After destroy  |
+| --------------------- | --------------- | -------------- |
+| EKS control plane     | ~$2.40          | $0             |
+| 2× t3.medium nodes    | ~$2.00          | $0             |
+| RDS db.t3.micro       | ~$0.50          | $0             |
+| ElastiCache t3.micro  | ~$0.40          | $0             |
+| Kafka on EKS (no MSK) | $0 extra        | $0             |
+| ECR storage           | ~$0.05          | ~$0.05         |
+| **Total**             | **~$5.35/day**  | **~$0.05/day** |
+
 
 > Running Kafka as a Helm chart on EKS instead of AWS MSK saves roughly $150/month during development.
 
@@ -168,11 +188,13 @@ This runs `terraform destroy -auto-approve` and drops daily cost from ~$5/day to
 This section is the heart of the project — it explains *why* each choice was made.
 
 ### Partitioning strategy
+
 GPS events are keyed by `driverId`. Kafka guarantees ordering only within a partition, so keying by
 driver ensures every consumer sees one driver's location updates in the order they happened. The
 8-partition count on `driver.location` lets up to 8 consumers process in parallel.
 
 ### At-least-once vs exactly-once
+
 Most consumers use **at-least-once** (the Kafka default) with idempotent writes — re-processing a GPS
 update just overwrites the same Redis key, so duplicates are harmless. The **fare calculation** path
 uses **exactly-once** semantics (`transactional.id` on the producer + `@Transactional` around the
@@ -180,22 +202,26 @@ consume-transform-produce loop) because charging a rider twice is unacceptable. 
 latency (~50ms vs ~18ms), which is a deliberate tradeoff applied only where correctness demands it.
 
 ### Dead letter queue
+
 Every consumer is configured with `DefaultErrorHandler` + `DeadLetterPublishingRecoverer`. Malformed
 events (null coordinates, bad timestamps, deserialization failures) are routed to `events.dlq` instead
 of crashing the consumer or blocking the partition. The `dlq-processor` persists them to an audit
 table so failures are observable, not silent.
 
 ### Stream join (surge pricing)
+
 The surge engine uses Kafka Streams to join `driver.location` (supply) against `rider.requests`
 (demand) over a 30-second window, grouped by zone. When demand/supply exceeds 1.5 it emits a surge
 event. This demonstrates windowed stream joins and why event-time vs processing-time matters.
 
 ### Scaling and availability
+
 The `location-aggregator` runs behind a HorizontalPodAutoscaler (2–8 replicas). Scaling triggers
 Kafka consumer group rebalancing, which redistributes partitions across the new pods. A
 PodDisruptionBudget (`minAvailable: 1`) ensures rolling updates never take all consumers down at once.
 
 ### CAP tradeoff
+
 The live map favours availability and partition tolerance over strict consistency — a driver position
 that's a second stale is fine. The fare/payment path favours consistency — it must be correct even if
 that means higher latency.
@@ -206,10 +232,10 @@ that means higher latency.
 
 - Micrometer exposes `/actuator/prometheus` on every service
 - Custom metrics: `rideshare.events.produced` (counter), `rideshare.consumer.lag` (gauge),
-  `rideshare.dlq.total` (counter)
+`rideshare.dlq.total` (counter)
 - Prometheus scrapes all pods; Grafana dashboards show consumer lag, throughput, and JVM health
 - The consumer-lag-under-load graph is the single best screenshot for demonstrating the system holds
-  up under a simulated spike
+up under a simulated spike
 
 ---
 
