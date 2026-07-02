@@ -189,9 +189,31 @@ This section is the heart of the project — it explains *why* each choice was m
 
 ### Partitioning strategy
 
-GPS events are keyed by `driverId`. Kafka guarantees ordering only within a partition, so keying by
-driver ensures every consumer sees one driver's location updates in the order they happened. The
-8-partition count on `driver.location` lets up to 8 consumers process in parallel.
+**Why partitioning by `driverId` guarantees ordering:**
+
+Kafka only guarantees ordering within a partition, not across partitions. By keying messages by `driverId`:
+
+1. **Hash-based partition assignment** — Kafka's default partitioner computes `hash(driverId) % numPartitions`, ensuring all messages for the same driver always go to the same partition
+2. **Single-consumer-per-partition** — Within a consumer group, each partition is assigned to exactly one consumer
+3. **Sequential consumption** — A consumer reads messages from a partition in the order they were written
+
+**Result:** All location updates for `driver-042` land on the same partition (e.g., partition 3) and are consumed in order, even if `driver-001`'s updates are processed in parallel on partition 0.
+
+**Implementation details:**
+
+```java
+// gps-producer sends with driverId as the key
+kafkaTemplate.send("driver.location", driverId, event);
+```
+
+The 8-partition count on `driver.location` allows up to 8 consumers to process in parallel while maintaining per-driver ordering. With 50 simulated drivers, each partition handles ~6-7 drivers.
+
+**Topics and their partitioning keys:**
+
+- `driver.location` (8 partitions, key: `driverId`) — GPS location updates
+- `trip.events` (4 partitions, key: `tripId`) — Trip lifecycle events (ordered per trip)
+- `surge.pricing` (2 partitions, key: `zoneId`) — Surge multipliers (ordered per zone)
+- `events.dlq` (1 partition, no key) — Dead-lettered events (order not required)
 
 ### At-least-once vs exactly-once
 

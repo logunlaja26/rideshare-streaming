@@ -25,13 +25,13 @@ thin, just enough to make the system visible and demo-able.
 
 ## Phase 2 — Kafka producer + core events (Week 2)
 
-- [ ] Define `DriverLocationEvent` Java record: driverId, lat, lng, timestamp, speed `[backend]`
-- [ ] Configure KafkaProducer: `acks=all`, `enable.idempotence=true`, JsonSerializer — key = driverId `[backend]` `[dist-sys]`
-- [ ] Write `@Scheduled` GPS simulator: random-walk algorithm, 50 simulated drivers, emit every 2 seconds `[backend]`
-- [ ] Create Kafka topics via AdminClient: driver.location (8 partitions), trip.events (4), surge.pricing (2), events.dlq (1) `[backend]` `[dist-sys]`
-- [ ] Understand WHY partitioning by driverId guarantees ordered delivery per driver — write it in your README `[dist-sys]`
-- [ ] Write unit tests for GPS simulator using `@EmbeddedKafka` broker `[backend]`
-- [ ] Verify events flowing in Kafka UI consumer view — confirm correct partitions `[backend]`
+- [x] Define `DriverLocationEvent` Java record: driverId, lat, lng, timestamp, speed `[backend]`
+- [x] Configure KafkaProducer: `acks=all`, `enable.idempotence=true`, JsonSerializer — key = driverId `[backend]` `[dist-sys]`
+- [x] Write `@Scheduled` GPS simulator: random-walk algorithm, 50 simulated drivers, emit every 2 seconds `[backend]`
+- [x] Create Kafka topics via AdminClient: driver.location (8 partitions), trip.events (4), surge.pricing (2), events.dlq (1) `[backend]` `[dist-sys]`
+- [x] Understand WHY partitioning by driverId guarantees ordered delivery per driver — write it in your README `[dist-sys]`
+- [x] Write unit tests for GPS simulator using `@EmbeddedKafka` broker `[backend]`
+- [x] Verify events flowing in Kafka UI consumer view — confirm correct partitions `[backend]`
 
 ---
 
