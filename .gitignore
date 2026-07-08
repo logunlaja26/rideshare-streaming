@@ -76,3 +76,5 @@ application-local.properties
 *.key
 credentials.json
 .env
+
+/review

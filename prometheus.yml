@@ -3,19 +3,11 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  # Prometheus self-monitoring
   - job_name: 'prometheus'
     static_configs:
       - targets: ['localhost:9090']
 
-  # Spring Boot Actuator endpoints (will be added per service)
-  # Example configuration for when services are running:
-  # - job_name: 'gps-producer'
-  #   metrics_path: '/actuator/prometheus'
-  #   static_configs:
-  #     - targets: ['host.docker.internal:8081']
-  #
-  # - job_name: 'location-aggregator'
-  #   metrics_path: '/actuator/prometheus'
-  #   static_configs:
-  #     - targets: ['host.docker.internal:8082']
+  - job_name: 'spring-boot-apps'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['host.docker.internal:8081', 'host.docker.internal:8082']
