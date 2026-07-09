@@ -12,6 +12,8 @@ import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
+
 /**
  * Kafka consumer that reads driver location events and writes them to Redis.
  *
@@ -85,5 +87,59 @@ public class LocationAggregatorService {
     public long getTrackedDriverCount() {
         Long size = redisTemplate.opsForHash().size(DRIVER_LOCATIONS_KEY);
         return size != null ? size : 0;
+    }
+
+    /**
+     * Fetches all driver locations from Redis and returns them as a GeoJSON FeatureCollection.
+     * Each driver is represented as a Feature with Point geometry and properties.
+     *
+     * @return GeoJSON FeatureCollection containing all active driver locations
+     */
+    public com.rideshare.location.model.GeoJsonFeatureCollection getAllDriverLocations() {
+        try {
+            // Fetch all entries from the Redis HASH
+            var entries = redisTemplate.opsForHash().entries(DRIVER_LOCATIONS_KEY);
+
+            // Convert each entry to a GeoJSON Feature
+            var features = entries.values().stream()
+                .map(value -> {
+                    try {
+                        // Deserialize JSON string back to DriverLocationEvent
+                        DriverLocationEvent event = objectMapper.readValue(
+                            (String) value,
+                            DriverLocationEvent.class
+                        );
+
+                        // Create GeoJSON Point (longitude, latitude order per spec)
+                        var point = new com.rideshare.location.model.GeoJsonPoint(
+                            event.lng(),
+                            event.lat()
+                        );
+
+                        // Create properties object
+                        var properties = new com.rideshare.location.model.DriverProperties(
+                            event.driverId(),
+                            event.speed(),
+                            event.timestamp()
+                        );
+
+                        // Create Feature
+                        return new com.rideshare.location.model.GeoJsonFeature(point, properties);
+                    } catch (Exception e) {
+                        log.error("Failed to deserialize driver location: {}", e.getMessage());
+                        return null;
+                    }
+                })
+                .filter(feature -> feature != null)
+                .toList();
+
+            log.debug("Retrieved {} driver locations from Redis", features.size());
+            return new com.rideshare.location.model.GeoJsonFeatureCollection(features);
+
+        } catch (Exception e) {
+            log.error("Error fetching driver locations from Redis: {}", e.getMessage(), e);
+            // Return empty FeatureCollection on error
+            return new com.rideshare.location.model.GeoJsonFeatureCollection(List.of());
+        }
     }
 }

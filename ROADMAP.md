@@ -37,8 +37,8 @@ thin, just enough to make the system visible and demo-able.
 
 ## Phase 3 — Consumer services (Week 3)
 
-- [ ] Build location-aggregator: `@KafkaListener` on driver.location, manual offset commit (`enable-auto-commit=false`), write to Redis HASH keyed by driverId `[backend]` `[dist-sys]`
-- [ ] Expose `GET /api/drivers` endpoint that reads all positions from Redis and returns GeoJSON `[backend]`
+- [x] Build location-aggregator: `@KafkaListener` on driver.location, manual offset commit (`enable-auto-commit=false`), write to Redis HASH keyed by driverId `[backend]` `[dist-sys]`
+- [x] Expose `GET /api/drivers` endpoint that reads all positions from Redis and returns GeoJSON `[backend]`
 - [ ] Build trip-event-service: consume trip.events, route TRIP_STARTED / TRIP_ENDED / FARE_CALCULATED via switch expression `[backend]`
 - [ ] Persist completed trips to Postgres via Spring Data JPA — define Trip, Driver, Fare entities `[backend]`
 - [ ] Implement DLQ on all consumers: `DefaultErrorHandler` + `DeadLetterPublishingRecoverer` — failed messages → events.dlq `[backend]` `[dist-sys]`
