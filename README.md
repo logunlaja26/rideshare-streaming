@@ -41,7 +41,7 @@ Three layers, all containerised and deployable to Kubernetes.
 │  api-gateway          → Spring Cloud Gateway (routing + CORS)      │
 │  gps-producer         → @Scheduled GPS simulator → Kafka producer  │
 │  location-aggregator  → Kafka consumer → Redis live positions      │
-│  trip-event-service   → consumes trip.events → Postgres            │
+│  trip-event-service   → produces + consumes trip.events → Postgres │
 │  surge-pricing-engine → Kafka Streams windowed join                │
 │  notification-service → Redis pub/sub → WebSocket relay            │
 │  dlq-processor        → reads events.dlq → audit table             │
@@ -84,7 +84,7 @@ is consumed in order by exactly one consumer in the group.
 | ---------------------- | -------------------- | ------------------------------------ | -------------------------------- |
 | `gps-producer`         | Kafka producer       | (scheduler)                          | `driver.location`                |
 | `location-aggregator`  | Kafka consumer       | `driver.location`                    | Redis HASH + pub/sub             |
-| `trip-event-service`   | Kafka consumer       | `trip.events`                        | Postgres                         |
+| `trip-event-service`   | Kafka producer + consumer | (scheduler) + `trip.events`      | `trip.events` + Postgres         |
 | `surge-pricing-engine` | Kafka Streams        | `driver.location` + `rider.requests` | `surge.pricing`                  |
 | `notification-service` | WebSocket relay      | Redis pub/sub                        | Browser (STOMP `/topic/drivers`) |
 | `dlq-processor`        | Kafka consumer       | `events.dlq`                         | Postgres `dlq_events`            |
