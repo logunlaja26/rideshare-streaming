@@ -27,7 +27,9 @@ This is a exploration + portfolio project. The goal is to practicalize system de
 
 ## Architecture
 
-Three layers, all containerised and deployable to Kubernetes.
+Three layers, all containerised and deployable to Kubernetes. The platform runs two parallel
+data streams: one for **real-time driver positions** (live map) and one for **trip lifecycle
+events** (historical records and fares).
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -40,6 +42,7 @@ Three layers, all containerised and deployable to Kubernetes.
 │                                                                    │
 │  api-gateway          → Spring Cloud Gateway (routing + CORS)      │
 │  gps-producer         → @Scheduled GPS simulator → Kafka producer  │
+│  trip-producer        → @Scheduled trip lifecycle simulator        │
 │  location-aggregator  → Kafka consumer → Redis live positions      │
 │  trip-event-service   → consumes trip.events → Postgres            │
 │  surge-pricing-engine → Kafka Streams windowed join                │
@@ -49,7 +52,7 @@ Three layers, all containerised and deployable to Kubernetes.
                                  │  publish / consume
 ┌───────────────────────────────┴───────────────────────────────────┐
 │  DATA LAYER    Apache Kafka · Redis · Postgres                     │
-│  Kafka: 4 topics, partitioned by driverId                          │
+│  Kafka: 4 topics, partitioned by driverId / tripId / zoneId        │
 │  Redis: live driver positions + pub/sub                            │
 │  Postgres: trip history, fares, DLQ audit                          │
 └─────────────────────────────────────────────────────────────────┘
@@ -57,6 +60,109 @@ Three layers, all containerised and deployable to Kubernetes.
 INFRASTRUCTURE  Docker Compose (local) · Kubernetes + Helm (cloud)
 OBSERVABILITY   Prometheus + Grafana
 ```
+
+### Real-time location stream
+
+Answers: *where are drivers right now?* Powers the live map.
+
+```
+gps-producer (50 drivers moving)
+    ↓ produces every 2 seconds
+driver.location topic (8 partitions, keyed by driverId)
+    ↓ consumed by
+location-aggregator
+    ↓ writes to
+Redis HASH (key: driver:{driverId}, value: {lat, lng, timestamp})
+    ↓ publishes to
+Redis pub/sub channel
+    ↓ pushed via
+notification-service (WebSocket)
+    ↓ received by
+React frontend → drivers move on the map in real time
+```
+
+### Trip lifecycle stream
+
+Answers: *what trips happened, who rode with whom, and how much was paid?* Powers trip history.
+
+```
+trip-producer (simulates trip lifecycles)
+    ↓ produces TRIP_STARTED / TRIP_ENDED / FARE_CALCULATED
+trip.events topic (4 partitions, keyed by tripId)
+    ↓ consumed by
+trip-event-service
+    ↓ writes to
+Postgres (trips, fares tables)
+    ↓ queried by
+api-gateway → /api/trips endpoint → React shows trip history
+```
+
+### Data storage strategy
+
+
+| Storage  | Purpose                   | Data                       | Lifespan                       |
+| -------- | ------------------------- | -------------------------- | ------------------------------ |
+| Redis    | Current state (real-time) | Driver locations (lat/lng) | Overwritten every ~2 seconds   |
+| Postgres | Historical records        | Trips, fares, drivers      | Permanent (audit trail)          |
+| Kafka    | Event stream (in-flight)  | Events being processed     | Retained 7 days (configurable) |
+
+
+### Postgres entity model
+
+```
+Driver
+├── driverId (PK)
+├── name
+├── vehicleType
+└── HAS MANY Trips
+
+Trip
+├── tripId (PK)
+├── driverId (FK → Driver)
+├── riderId
+├── pickupLat, pickupLng (captured at TRIP_STARTED)
+├── dropoffLat, dropoffLng (captured at TRIP_ENDED)
+├── distance (km)
+├── duration (seconds)
+├── status (STARTED, COMPLETED)
+├── startTime
+├── endTime
+└── HAS ONE Fare
+
+Fare
+├── fareId (PK)
+├── tripId (FK → Trip)
+├── amount (calculated from distance + duration + surge)
+├── surgeMultiplier
+└── calculatedAt
+```
+
+### End-to-end user journey
+
+A complete ride from live tracking through persistence and query:
+
+1. **Driver is moving** — `gps-producer` emits a `DriverLocationEvent` (e.g. `driverId=D123`,
+   `lat=40.7128`, `lng=-74.0060`) → `driver.location` topic → `location-aggregator` consumes →
+   Redis: `driver:D123 = {lat: 40.7128, lng: -74.0060}` → frontend: driver D123 marker moves on
+   the map.
+
+2. **Rider requests a trip** — `trip-producer` emits
+   `TripEvent(eventType=TRIP_STARTED, tripId=T456, driverId=D123, riderId=R789,
+   pickupLat=40.7128, pickupLng=-74.0060)` → `trip.events` topic → `trip-event-service` consumes →
+   Postgres: `INSERT INTO trips (tripId, driverId, riderId, pickupLat, pickupLng, status=STARTED)`.
+
+3. **Driver completes the trip** — `trip-producer` emits
+   `TripEvent(eventType=TRIP_ENDED, tripId=T456, dropoffLat=40.7580, dropoffLng=-73.9855,
+   distance=5.2, duration=840)` → `trip.events` → `trip-event-service` → Postgres:
+   `UPDATE trips SET dropoffLat=..., distance=5.2, duration=840, status=COMPLETED`.
+
+4. **Fare is calculated** — `trip-producer` emits
+   `TripEvent(eventType=FARE_CALCULATED, tripId=T456, fareAmount=18.50)` → `trip.events` →
+   `trip-event-service` → Postgres: `INSERT INTO fares (tripId, amount=18.50)`.
+
+5. **User views trip history** — frontend calls `GET /api/trips/T456` → `api-gateway` routes to
+   `trip-event-service` → Postgres: `SELECT * FROM trips WHERE tripId=T456` → returns trip details
+   including pickup, dropoff, distance, duration, and fare.
 
 ---
 
@@ -83,6 +189,7 @@ is consumed in order by exactly one consumer in the group.
 | Service                | Type                 | Reads from                           | Writes to                        |
 | ---------------------- | -------------------- | ------------------------------------ | -------------------------------- |
 | `gps-producer`         | Kafka producer       | (scheduler)                          | `driver.location`                |
+| `trip-producer`        | Kafka producer       | (scheduler)                          | `trip.events`                    |
 | `location-aggregator`  | Kafka consumer       | `driver.location`                    | Redis HASH + pub/sub             |
 | `trip-event-service`   | Kafka consumer       | `trip.events`                        | Postgres                         |
 | `surge-pricing-engine` | Kafka Streams        | `driver.location` + `rider.requests` | `surge.pricing`                  |
@@ -114,13 +221,15 @@ mvn clean install
 # 4. Start each service (separate terminals, or use docker compose for everything)
 mvn spring-boot:run -pl backend/gps-producer
 mvn spring-boot:run -pl backend/location-aggregator
+mvn spring-boot:run -pl backend/trip-producer
 #   a. gps-producer (port 8081)
 #   b. location-aggregator (port 8082)
-#   c. trip-event-service (port 8083)
-#   d. surge-pricing-engine (port 8084)
-#   e. notification-service (port 8085)
-#   f. dlq-processor (port 8086)
-#   g. api-gateway (port 8080)
+#   c. trip-producer (port 8084)
+#   d. trip-event-service (port 8083)
+#   e. surge-pricing-engine (port 8084)
+#   f. notification-service (port 8085)
+#   g. dlq-processor (port 8086)
+#   h. api-gateway (port 8080)
 # ...etc
 
 # 5. Start the frontend
@@ -273,6 +382,7 @@ rideshare-streaming/
 ├── backend/
 │   ├── pom.xml                 # parent POM, dependency management
 │   ├── gps-producer/
+│   ├── trip-producer/
 │   ├── location-aggregator/
 │   ├── trip-event-service/
 │   ├── surge-pricing-engine/

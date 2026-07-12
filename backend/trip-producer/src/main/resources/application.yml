@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: trip-producer
+  kafka:
+    bootstrap-servers: localhost:9092
+
+server:
+  port: 8084
+
+# Trip simulator configuration
+trip:
+  simulator:
+    enabled: true
+    num-active-trips: 10      # Number of concurrent trips
+    trip-duration-min: 300    # Minimum trip duration in seconds (5 min)
+    trip-duration-max: 1800   # Maximum trip duration in seconds (30 min)
+    interval-seconds: 10      # Check for new trips every 10 seconds
+
+logging:
+  level:
+    com.rideshare.tripproducer: INFO
+    org.apache.kafka: WARN

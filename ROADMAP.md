@@ -39,7 +39,8 @@ thin, just enough to make the system visible and demo-able.
 
 - [x] Build location-aggregator: `@KafkaListener` on driver.location, manual offset commit (`enable-auto-commit=false`), write to Redis HASH keyed by driverId `[backend]` `[dist-sys]`
 - [x] Expose `GET /api/drivers` endpoint that reads all positions from Redis and returns GeoJSON `[backend]`
-- [ ] Build trip-event-service: consume trip.events, route TRIP_STARTED / TRIP_ENDED / FARE_CALCULATED via switch expression `[backend]`
+- [x] Build trip-producer: simulate trip lifecycle events (TRIP_STARTED, TRIP_ENDED, FARE_CALCULATED) and produce to trip.events topic `[backend]`
+- [x] Build trip-event-service: consume trip.events, route TRIP_STARTED / TRIP_ENDED / FARE_CALCULATED via switch expression `[backend]`
 - [ ] Persist completed trips to Postgres via Spring Data JPA — define Trip, Driver, Fare entities `[backend]`
 - [ ] Implement DLQ on all consumers: `DefaultErrorHandler` + `DeadLetterPublishingRecoverer` — failed messages → events.dlq `[backend]` `[dist-sys]`
 - [ ] Understand and document: at-least-once (default) vs exactly-once delivery — tradeoffs in your README `[dist-sys]`

@@ -37,6 +37,7 @@
     <modules>
         <module>gps-producer</module>
         <module>location-aggregator</module>
+        <module>trip-producer</module>
         <module>trip-event-service</module>
         <module>surge-pricing-engine</module>
         <module>notification-service</module>
