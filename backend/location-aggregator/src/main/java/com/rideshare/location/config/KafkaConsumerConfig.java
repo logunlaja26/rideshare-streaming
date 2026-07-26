@@ -74,7 +74,8 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, DriverLocationEvent> kafkaListenerContainerFactory() {
+    public ConcurrentKafkaListenerContainerFactory<String, DriverLocationEvent> kafkaListenerContainerFactory(
+            org.springframework.kafka.listener.CommonErrorHandler kafkaErrorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, DriverLocationEvent> factory =
             new ConcurrentKafkaListenerContainerFactory<>();
 
@@ -82,6 +83,9 @@ public class KafkaConsumerConfig {
 
         // MANUAL ack mode: Application must call acknowledgment.acknowledge() to commit offset
         factory.getContainerProperties().setAckMode(ContainerProperties.AckMode.MANUAL);
+
+        // Set error handler with DLQ support (from KafkaErrorHandlingConfig)
+        factory.setCommonErrorHandler(kafkaErrorHandler);
 
         // Number of concurrent consumer threads (defaults to 1)
         // When deployed with HPA (2-8 replicas), each replica runs 1 consumer thread

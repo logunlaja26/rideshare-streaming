@@ -2,7 +2,7 @@ spring:
   application:
     name: trip-producer
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: localhost:9094
 
 server:
   port: 8084

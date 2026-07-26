@@ -75,7 +75,7 @@ public class LocationAggregatorService {
             log.error("Error processing location event for driver {} from partition {} offset {}: {}",
                 event.driverId(), partition, offset, e.getMessage(), e);
             // Do NOT acknowledge - this message will be redelivered
-            // In Phase 3 Step 5, we'll add DLQ handling for persistent failures
+            // Error handler will retry with exponential backoff, then send to DLQ if still failing
             throw new RuntimeException("Failed to process location event for " + event.driverId(), e);
         }
     }

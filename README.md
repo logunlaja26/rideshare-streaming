@@ -324,13 +324,127 @@ The 8-partition count on `driver.location` allows up to 8 consumers to process i
 - `surge.pricing` (2 partitions, key: `zoneId`) — Surge multipliers (ordered per zone)
 - `events.dlq` (1 partition, no key) — Dead-lettered events (order not required)
 
-### At-least-once vs exactly-once
+### At-least-once vs exactly-once delivery
 
-Most consumers use **at-least-once** (the Kafka default) with idempotent writes — re-processing a GPS
-update just overwrites the same Redis key, so duplicates are harmless. The **fare calculation** path
-uses **exactly-once** semantics (`transactional.id` on the producer + `@Transactional` around the
-consume-transform-produce loop) because charging a rider twice is unacceptable. Exactly-once costs
-latency (~50ms vs ~18ms), which is a deliberate tradeoff applied only where correctness demands it.
+This is a fundamental distributed systems tradeoff. Every Kafka consumer must choose a delivery guarantee.
+
+#### What are the delivery guarantees?
+
+**At-least-once delivery** (Kafka default):
+- Messages are processed one or more times
+- Consumer commits offset AFTER processing completes
+- If consumer crashes after processing but before offset commit, message is redelivered
+- **Implication:** Your processing logic must be idempotent (safe to run multiple times)
+
+**Exactly-once delivery** (requires configuration):
+- Messages are processed exactly one time, guaranteed
+- Uses Kafka transactions: offset commit + producer send happen atomically
+- If consumer crashes mid-batch, neither the offset nor downstream messages are committed
+- **Implication:** Higher latency (~50ms vs ~18ms) due to transaction overhead
+
+**At-most-once delivery** (rare):
+- Messages are processed zero or one times
+- Consumer commits offset BEFORE processing
+- If crash happens, message is lost
+- **Implication:** Almost never used in production (data loss risk)
+
+#### Implementation in this project
+
+**Location aggregator (at-least-once):**
+```java
+// Manual offset commit in location-aggregator
+@KafkaListener(topics = "driver.location", ...)
+public void consumeDriverLocation(DriverLocationEvent event, Acknowledgment ack) {
+    // 1. Write to Redis HASH
+    redisTemplate.opsForHash().put("driver:locations", event.driverId(), json);
+
+    // 2. Commit offset manually only after Redis write succeeds
+    ack.acknowledge();
+}
+```
+
+**Why at-least-once works here:**
+- Redis writes are idempotent: `HSET driver:locations driver-042 {...}` is safe to run twice
+- If consumer crashes after Redis write but before offset commit, message is redelivered
+- Re-processing just overwrites the same Redis key with the same (or slightly newer) coordinates
+- **Result:** No duplicate data, no incorrect state
+
+**Trip event service (at-least-once in Phase 3, exactly-once in Phase 4):**
+```java
+// Phase 3: At-least-once with auto-commit
+@KafkaListener(topics = "trip.events", ...)
+public void consumeTripEvent(TripEvent event) {
+    switch (event.eventType()) {
+        case TRIP_STARTED -> tripRepository.save(new Trip(...));
+        case FARE_CALCULATED -> fareRepository.save(new Fare(...));
+    }
+    // Offset auto-committed after method returns
+}
+```
+
+**Why at-least-once is acceptable for now:**
+- Postgres writes are currently NOT idempotent (duplicate fare = double charge)
+- Phase 4 will add exactly-once semantics specifically for fare calculation
+- For TRIP_STARTED/ENDED, duplicates cause constraint violations (logged to DLQ)
+
+#### Tradeoffs
+
+| Aspect | At-least-once | Exactly-once |
+|--------|--------------|-------------|
+| **Latency** | Low (~18ms avg) | Higher (~50ms avg) |
+| **Throughput** | High (20k+ msg/sec) | Lower (8k-12k msg/sec) |
+| **Complexity** | Simple (default config) | Complex (transactional.id, isolation level) |
+| **Duplicate risk** | Possible (on crash) | Impossible (guaranteed) |
+| **Use case** | Idempotent operations (cache updates, logs) | Financial transactions, billing |
+| **Cost** | Standard | ~2.5x more compute (transaction overhead) |
+
+#### When to use each
+
+**Use at-least-once when:**
+- Processing logic is naturally idempotent (HSET, UPSERT, overwrite)
+- Duplicates are acceptable or filtered downstream
+- Latency/throughput matter more than perfect correctness
+- Examples: GPS updates, logs, metrics, cache invalidation
+
+**Use exactly-once when:**
+- Duplicates would cause serious correctness issues
+- Financial transactions (payments, billing, refunds)
+- Inventory decrements
+- Examples: fare calculation, payment processing, account balance updates
+
+#### Real-world example from this project
+
+**Scenario:** Consumer crashes after writing fare to Postgres but before committing Kafka offset.
+
+At-least-once (current Phase 3 behaviour):
+```
+1. Message arrives: FARE_CALCULATED tripId=T456 amount=18.50
+2. Write to Postgres: INSERT INTO fares (tripId, amount) VALUES ('T456', 18.50)
+3. [CRASH] before offset commit
+4. Consumer restarts, redelivers same message
+5. Write to Postgres again: INSERT INTO fares (tripId, amount) VALUES ('T456', 18.50)
+6. Result: TWO fare records, rider charged $37 instead of $18.50
+```
+
+Exactly-once (Phase 4 upgrade):
+```
+1. Message arrives: FARE_CALCULATED tripId=T456 amount=18.50
+2. Begin transaction (Kafka + Postgres)
+3. Write to Postgres: INSERT INTO fares ...
+4. Commit offset + Postgres transaction atomically
+5. [CRASH] before atomic commit completes
+6. Both Kafka offset AND Postgres write are rolled back
+7. Consumer restarts, redelivers message
+8. Process again, commit atomically
+9. Result: ONE fare record, correct charge
+```
+
+#### Key takeaway
+
+At-least-once is the right default for 95% of stream processing. Use exactly-once only where
+duplicates would break correctness, and be prepared to pay the latency/complexity cost. In this
+project, GPS updates use at-least-once (fast, idempotent). Fare calculation will use exactly-once
+in Phase 4 (correct, slower).
 
 ### Dead letter queue
 

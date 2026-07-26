@@ -66,11 +66,15 @@ public class KafkaConsumerConfig {
     }
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, TripEvent> kafkaListenerContainerFactory() {
+    public ConcurrentKafkaListenerContainerFactory<String, TripEvent> kafkaListenerContainerFactory(
+            org.springframework.kafka.listener.CommonErrorHandler kafkaErrorHandler) {
         ConcurrentKafkaListenerContainerFactory<String, TripEvent> factory =
             new ConcurrentKafkaListenerContainerFactory<>();
 
         factory.setConsumerFactory(consumerFactory());
+
+        // Set error handler with DLQ support (from KafkaErrorHandlingConfig)
+        factory.setCommonErrorHandler(kafkaErrorHandler);
 
         // Single consumer thread per replica
         factory.setConcurrency(1);
